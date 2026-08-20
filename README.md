@@ -28,9 +28,9 @@ Use these production settings:
 | --- | --- |
 | Production branch | `main` |
 | Build command | `npm run build` |
-| Deploy command | `npm run deploy` |
-| Non-production deploy command | `npm run deploy:preview` |
-| Root directory | Leave blank (repository root) |
+| Deploy command | `npx wrangler deploy` |
+| Non-production deploy command | `npx wrangler versions upload` |
+| Root directory | `/` |
 
 Add these build variables:
 
