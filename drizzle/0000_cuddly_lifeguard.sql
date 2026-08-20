@@ -1,0 +1,41 @@
+CREATE TABLE `material_items` (
+	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`request_id` text NOT NULL,
+	`line_number` integer NOT NULL,
+	`part_number` text DEFAULT '' NOT NULL,
+	`description` text NOT NULL,
+	`quantity` real NOT NULL,
+	`unit` text DEFAULT 'EA' NOT NULL,
+	`manufacturer` text DEFAULT '' NOT NULL,
+	`model` text DEFAULT '' NOT NULL,
+	`preferred_vendor` text DEFAULT '' NOT NULL,
+	`estimated_unit_cost` real,
+	`notes` text DEFAULT '' NOT NULL,
+	FOREIGN KEY (`request_id`) REFERENCES `material_requests`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE TABLE `material_requests` (
+	`id` text PRIMARY KEY NOT NULL,
+	`created_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL,
+	`status` text DEFAULT 'submitted' NOT NULL,
+	`requester_name` text NOT NULL,
+	`requester_email` text NOT NULL,
+	`requester_phone` text DEFAULT '' NOT NULL,
+	`department` text DEFAULT '' NOT NULL,
+	`project_name` text NOT NULL,
+	`project_number` text NOT NULL,
+	`cost_code` text DEFAULT '' NOT NULL,
+	`project_manager` text DEFAULT '' NOT NULL,
+	`purpose` text DEFAULT '' NOT NULL,
+	`priority` text NOT NULL,
+	`needed_by` text NOT NULL,
+	`ship_to` text NOT NULL,
+	`delivery_contact` text DEFAULT '' NOT NULL,
+	`delivery_phone` text DEFAULT '' NOT NULL,
+	`delivery_hours` text DEFAULT '' NOT NULL,
+	`approver_name` text DEFAULT '' NOT NULL,
+	`po_required` integer DEFAULT false NOT NULL,
+	`po_number` text DEFAULT '' NOT NULL,
+	`substitution_policy` text DEFAULT 'contact' NOT NULL,
+	`notes` text DEFAULT '' NOT NULL
+);
