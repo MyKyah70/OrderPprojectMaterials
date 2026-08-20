@@ -41,6 +41,8 @@ Add these build variables:
 
 The binding name used by the application is `DB`. The generated Worker configuration includes that binding automatically.
 
+Submitted requests are also emailed to Frankie Pedersen at `fjpedersen@3dtsi.com` from the restricted sender `material-requests@orders.awgoodson.com`. The Worker binding only permits that sender and recipient, and submissions are rate-limited before email delivery.
+
 ### 3. Deploy
 
 Save the build settings and trigger a deployment. Cloudflare will provide a `workers.dev` address. The application creates its required D1 tables on the first valid material-request submission.

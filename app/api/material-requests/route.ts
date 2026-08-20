@@ -36,8 +36,209 @@ type RequestPayload = {
   items?: MaterialItem[];
 };
 
+type NormalizedMaterialItem = {
+  partNumber: string;
+  description: string;
+  quantity: number;
+  unit: string;
+  manufacturer: string;
+  model: string;
+  preferredVendor: string;
+  estimatedUnitCost: number | null;
+  notes: string;
+};
+
+type PurchasingEmailBinding = {
+  send(message: {
+    to: string;
+    from: string;
+    replyTo?: string;
+    subject: string;
+    text: string;
+    html: string;
+  }): Promise<unknown>;
+};
+
+const PURCHASING_EMAIL = "fjpedersen@3dtsi.com";
+const MATERIAL_REQUEST_SENDER = "material-requests@orders.awgoodson.com";
+
 const clean = (value: unknown, max = 1000) =>
   typeof value === "string" ? value.trim().slice(0, max) : "";
+
+const display = (value: unknown) => clean(value) || "—";
+
+const escapeHtml = (value: unknown) =>
+  display(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;")
+    .replaceAll("\n", "<br>");
+
+const substitutionLabels: Record<string, string> = {
+  contact: "Contact requester before any substitution",
+  equivalent: "Approved equivalent is acceptable",
+  exact: "Exact manufacturer and part number only",
+};
+
+function buildPurchasingEmail(
+  requestId: string,
+  payload: RequestPayload,
+  required: {
+    requesterName: string;
+    requesterEmail: string;
+    projectName: string;
+    projectNumber: string;
+    neededBy: string;
+    shipTo: string;
+  },
+  items: NormalizedMaterialItem[],
+) {
+  const priority = (payload.priority ?? "normal").toUpperCase();
+  const substitutionPolicy =
+    substitutionLabels[clean(payload.substitutionPolicy, 30)] ??
+    substitutionLabels.contact;
+  const estimatedTotal = items.reduce(
+    (sum, item) =>
+      sum + (item.estimatedUnitCost === null ? 0 : item.estimatedUnitCost * item.quantity),
+    0,
+  );
+  const hasEstimatedCost = items.some((item) => item.estimatedUnitCost !== null);
+  const money = (value: number | null) =>
+    value === null
+      ? "—"
+      : new Intl.NumberFormat("en-US", {
+          style: "currency",
+          currency: "USD",
+        }).format(value);
+  const textDetails = [
+    `MATERIAL REQUEST ${requestId}`,
+    `Priority: ${priority}`,
+    `Needed by: ${required.neededBy}`,
+    "",
+    "REQUESTER",
+    `Name: ${required.requesterName}`,
+    `Email: ${required.requesterEmail}`,
+    `Phone: ${display(payload.requesterPhone)}`,
+    `Department / branch: ${display(payload.department)}`,
+    "",
+    "PROJECT",
+    `Project name: ${required.projectName}`,
+    `Project number: ${required.projectNumber}`,
+    `Cost code: ${display(payload.costCode)}`,
+    `Project manager: ${display(payload.projectManager)}`,
+    `Purpose / scope: ${display(payload.purpose)}`,
+    "",
+    "DELIVERY",
+    `Ship to: ${required.shipTo}`,
+    `Delivery contact: ${display(payload.deliveryContact)}`,
+    `Delivery phone: ${display(payload.deliveryPhone)}`,
+    `Delivery hours / instructions: ${display(payload.deliveryHours)}`,
+    "",
+    "APPROVAL & PURCHASING",
+    `Approver / supervisor: ${display(payload.approverName)}`,
+    `PO required: ${payload.poRequired ? "Yes" : "No"}`,
+    `PO / quote number: ${display(payload.poNumber)}`,
+    `Substitution policy: ${substitutionPolicy}`,
+    `Order notes: ${display(payload.notes)}`,
+    "",
+    "MATERIALS",
+    ...items.flatMap((item, index) => [
+      `${index + 1}. ${item.description}`,
+      `   Part number: ${item.partNumber}`,
+      `   Manufacturer: ${item.manufacturer}`,
+      `   Model: ${display(item.model)}`,
+      `   Quantity: ${item.quantity} ${item.unit}`,
+      `   Preferred vendor: ${display(item.preferredVendor)}`,
+      `   Estimated unit cost: ${money(item.estimatedUnitCost)}`,
+      `   Line notes: ${display(item.notes)}`,
+      "",
+    ]),
+    `Estimated request total: ${hasEstimatedCost ? money(estimatedTotal) : "—"}`,
+    "",
+    `Reply to this email to contact ${required.requesterName}.`,
+  ];
+
+  const row = (label: string, value: unknown) =>
+    `<tr><th style="padding:7px 10px;text-align:left;vertical-align:top;color:#5a6472;width:190px;border-bottom:1px solid #e5e7eb">${escapeHtml(label)}</th><td style="padding:7px 10px;vertical-align:top;border-bottom:1px solid #e5e7eb">${escapeHtml(value)}</td></tr>`;
+  const materialRows = items
+    .map(
+      (item, index) => `<tr>
+        <td style="padding:8px;border-bottom:1px solid #e5e7eb">${index + 1}</td>
+        <td style="padding:8px;border-bottom:1px solid #e5e7eb"><strong>${escapeHtml(item.partNumber)}</strong></td>
+        <td style="padding:8px;border-bottom:1px solid #e5e7eb">${escapeHtml(item.description)}</td>
+        <td style="padding:8px;border-bottom:1px solid #e5e7eb">${escapeHtml(item.manufacturer)}</td>
+        <td style="padding:8px;border-bottom:1px solid #e5e7eb">${escapeHtml(item.model)}</td>
+        <td style="padding:8px;border-bottom:1px solid #e5e7eb;white-space:nowrap">${item.quantity} ${escapeHtml(item.unit)}</td>
+        <td style="padding:8px;border-bottom:1px solid #e5e7eb">${escapeHtml(item.preferredVendor)}</td>
+        <td style="padding:8px;border-bottom:1px solid #e5e7eb;white-space:nowrap">${money(item.estimatedUnitCost)}</td>
+        <td style="padding:8px;border-bottom:1px solid #e5e7eb">${escapeHtml(item.notes)}</td>
+      </tr>`,
+    )
+    .join("");
+
+  return {
+    subject: `[${priority}] Material Request ${requestId} — ${required.projectName} (${required.projectNumber})`,
+    text: textDetails.join("\n"),
+    html: `<!doctype html>
+      <html><body style="margin:0;background:#f4f6f8;color:#17202a;font-family:Arial,sans-serif">
+        <div style="max-width:900px;margin:0 auto;padding:24px">
+          <div style="background:#102a43;color:white;padding:20px 24px;border-radius:10px 10px 0 0">
+            <div style="font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#b9d8ef">3D Technology Services</div>
+            <h1 style="margin:8px 0 4px;font-size:24px">Material Request ${escapeHtml(requestId)}</h1>
+            <div><strong>${escapeHtml(priority)}</strong> · Needed by ${escapeHtml(required.neededBy)}</div>
+          </div>
+          <div style="background:white;padding:24px;border:1px solid #dbe2e8;border-top:0">
+            <h2 style="font-size:18px;margin:0 0 10px">Requester</h2>
+            <table style="width:100%;border-collapse:collapse;margin-bottom:24px">
+              ${row("Name", required.requesterName)}
+              ${row("Email", required.requesterEmail)}
+              ${row("Phone", payload.requesterPhone)}
+              ${row("Department / branch", payload.department)}
+            </table>
+            <h2 style="font-size:18px;margin:0 0 10px">Project</h2>
+            <table style="width:100%;border-collapse:collapse;margin-bottom:24px">
+              ${row("Project name", required.projectName)}
+              ${row("Project number", required.projectNumber)}
+              ${row("Cost code", payload.costCode)}
+              ${row("Project manager", payload.projectManager)}
+              ${row("Purpose / scope", payload.purpose)}
+            </table>
+            <h2 style="font-size:18px;margin:0 0 10px">Materials</h2>
+            <div style="overflow-x:auto;margin-bottom:12px">
+              <table style="width:100%;border-collapse:collapse;font-size:13px">
+                <thead><tr style="background:#edf2f7">
+                  <th style="padding:8px;text-align:left">#</th><th style="padding:8px;text-align:left">Part number</th>
+                  <th style="padding:8px;text-align:left">Description</th><th style="padding:8px;text-align:left">Manufacturer</th>
+                  <th style="padding:8px;text-align:left">Model</th><th style="padding:8px;text-align:left">Qty</th>
+                  <th style="padding:8px;text-align:left">Vendor</th><th style="padding:8px;text-align:left">Est. unit cost</th>
+                  <th style="padding:8px;text-align:left">Notes</th>
+                </tr></thead><tbody>${materialRows}</tbody>
+              </table>
+            </div>
+            <p style="margin:0 0 24px;text-align:right"><strong>Estimated request total: ${hasEstimatedCost ? money(estimatedTotal) : "—"}</strong></p>
+            <h2 style="font-size:18px;margin:0 0 10px">Delivery</h2>
+            <table style="width:100%;border-collapse:collapse;margin-bottom:24px">
+              ${row("Ship to", required.shipTo)}
+              ${row("Delivery contact", payload.deliveryContact)}
+              ${row("Delivery phone", payload.deliveryPhone)}
+              ${row("Delivery hours / instructions", payload.deliveryHours)}
+            </table>
+            <h2 style="font-size:18px;margin:0 0 10px">Approval & purchasing</h2>
+            <table style="width:100%;border-collapse:collapse">
+              ${row("Approver / supervisor", payload.approverName)}
+              ${row("PO required", payload.poRequired ? "Yes" : "No")}
+              ${row("PO / quote number", payload.poNumber)}
+              ${row("Substitution policy", substitutionPolicy)}
+              ${row("Order notes", payload.notes)}
+            </table>
+          </div>
+          <div style="padding:14px 24px;color:#5a6472;font-size:12px">Reply to this email to contact ${escapeHtml(required.requesterName)} at ${escapeHtml(required.requesterEmail)}.</div>
+        </div>
+      </body></html>`,
+  };
+}
 
 async function ensureSchema(db: D1Database) {
   await db.batch([
@@ -80,7 +281,39 @@ async function ensureSchema(db: D1Database) {
       estimated_unit_cost REAL,
       notes TEXT NOT NULL DEFAULT ''
     )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS submission_rate_limits (
+      rate_key TEXT PRIMARY KEY,
+      window_start INTEGER NOT NULL,
+      request_count INTEGER NOT NULL DEFAULT 1
+    )`),
   ]);
+}
+
+async function submissionAllowed(db: D1Database, request: Request) {
+  const source = request.headers.get("cf-connecting-ip") || "unknown";
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(source),
+  );
+  const sourceHash = Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+  const windowSeconds = 15 * 60;
+  const windowStart = Math.floor(Date.now() / 1000 / windowSeconds) * windowSeconds;
+  const rateKey = `${sourceHash}:${windowStart}`;
+  const result = await db.prepare(`INSERT INTO submission_rate_limits (
+      rate_key, window_start, request_count
+    ) VALUES (?, ?, 1)
+    ON CONFLICT(rate_key) DO UPDATE SET request_count = request_count + 1
+    RETURNING request_count`)
+    .bind(rateKey, windowStart)
+    .first<{ request_count: number }>();
+
+  await db.prepare("DELETE FROM submission_rate_limits WHERE window_start < ?")
+    .bind(windowStart - windowSeconds)
+    .run();
+
+  return Number(result?.request_count ?? 1) <= 20;
 }
 
 export async function POST(request: Request) {
@@ -139,6 +372,12 @@ export async function POST(request: Request) {
     const db = env.DB;
     if (!db) throw new Error("Material request storage is unavailable.");
     await ensureSchema(db);
+    if (!(await submissionAllowed(db, request))) {
+      return Response.json(
+        { error: "Too many requests were submitted. Please wait 15 minutes and try again." },
+        { status: 429 },
+      );
+    }
 
     const statements = [
       db.prepare(`INSERT INTO material_requests (
@@ -193,7 +432,42 @@ export async function POST(request: Request) {
     ];
 
     await db.batch(statements);
-    return Response.json({ requestId, status: "submitted" }, { status: 201 });
+
+    const purchasingEmail = (env as unknown as { EMAIL?: PurchasingEmailBinding }).EMAIL;
+    const emailContent = buildPurchasingEmail(requestId, payload, required, items);
+    try {
+      if (!purchasingEmail) {
+        throw new Error("Purchasing email service is unavailable.");
+      }
+      await purchasingEmail.send({
+        to: PURCHASING_EMAIL,
+        from: MATERIAL_REQUEST_SENDER,
+        replyTo: required.requesterEmail,
+        subject: emailContent.subject,
+        text: emailContent.text,
+        html: emailContent.html,
+      });
+      await db.prepare("UPDATE material_requests SET status = ? WHERE id = ?")
+        .bind("emailed", requestId)
+        .run();
+    } catch {
+      await db.prepare("UPDATE material_requests SET status = ? WHERE id = ?")
+        .bind("email_failed", requestId)
+        .run()
+        .catch(() => undefined);
+      return Response.json(
+        {
+          requestId,
+          error: `Request ${requestId} was saved, but the purchasing email could not be delivered. Do not resubmit; contact purchasing with this confirmation number.`,
+        },
+        { status: 502 },
+      );
+    }
+
+    return Response.json(
+      { requestId, status: "submitted", emailStatus: "sent" },
+      { status: 201 },
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to submit this request.";
     return Response.json({ error: message }, { status: 500 });

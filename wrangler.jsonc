@@ -3,6 +3,13 @@
   "name": "3dtsi-material-ordering",
   "main": "dist/server/index.js",
   "compatibility_date": "2026-05-15",
+  "send_email": [
+    {
+      "name": "EMAIL",
+      "allowed_destination_addresses": ["fjpedersen@3dtsi.com"],
+      "allowed_sender_addresses": ["material-requests@orders.awgoodson.com"]
+    }
+  ],
   "observability": {
     "enabled": true
   }
