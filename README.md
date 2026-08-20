@@ -30,7 +30,7 @@ Use these production settings:
 | Build command | `npm run build` |
 | Deploy command | `npm run deploy` |
 | Non-production deploy command | `npm run deploy:preview` |
-| Root directory | `/` |
+| Root directory | Leave blank (repository root) |
 
 Add these build variables:
 
